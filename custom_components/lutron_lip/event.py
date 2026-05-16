@@ -84,7 +84,7 @@ class LutronEventEntity(LutronKeypadComponent, EventEntity):
 
         value is the action_number of the button that was pressed.
         """
-        event = self.action_number_to_event[value]
+        event = self.action_number_to_event.get(value)
         if event:
             data = {
                 ATTR_ID: self._id,

@@ -401,8 +401,8 @@ class LIP:
                 try:
                     if self._callback:
                         self._callback(message)
-                except ValueError:
-                    _LOGGER.warning("Error dispatching message: %s", response)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("Error dispatching message: %s", response, exc_info=True)
             else:
                 _LOGGER.debug("Unknown lutron message: %s", response)
 
