@@ -10,6 +10,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platfor
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import slugify
 
 from .aiolip import Button, Led, LutronController, OccupancyGroup, Output, Sysvar
 from .const import (
@@ -26,7 +27,6 @@ from .const import (
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.COVER,
-    Platform.EVENT,
     Platform.FAN,
     Platform.LIGHT,
     Platform.SCENE,
@@ -291,6 +291,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = entry_data
 
+    _setup_button_events(hass, entry_data)
+
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     return True
@@ -338,6 +340,58 @@ def _async_check_device_identifiers(
         device_registry.async_update_device(
             device.id, new_identifiers={(DOMAIN, new_unique_id)}
         )
+
+
+def _setup_button_events(hass: HomeAssistant, entry_data: LutronData) -> None:
+    """Register lutron_event bus callbacks for all buttons (no HA entities created)."""
+    _action_to_event = {
+        3: "press",
+        4: "release",
+        5: "hold",
+        6: "double_tap",
+        32: "hold_release",
+    }
+    controller = entry_data.controller
+
+    for button in entry_data.buttons:
+        if controller.use_radiora_mode:
+            keypad_name = button.keypad.name
+        else:
+            keypad_name = f"keypad {button.keypad.integration_id}"
+
+        component_name = button.component_name
+
+        area = button.area
+        if controller.use_area_for_device_name and area:
+            area_prefix = (
+                f"{area.location} {area.name}"
+                if controller.use_full_path
+                else area.name
+            )
+            device_name = f"{area_prefix} {keypad_name}"
+        else:
+            device_name = keypad_name
+
+        full_id = slugify(f"{device_name}: {component_name}")
+        btn_id = slugify(f"{keypad_name}: {component_name}")
+        btn_uuid = button.uuid
+
+        def _make_cb(fid, bid, uuid):
+            def _cb(action_number):
+                event_type = _action_to_event.get(action_number)
+                if event_type:
+                    hass.bus.fire(
+                        "lutron_event",
+                        {
+                            "id": bid,
+                            ATTR_ACTION: event_type,
+                            ATTR_FULL_ID: fid,
+                            ATTR_UUID: uuid,
+                        },
+                    )
+            return _cb
+
+        controller.subscribe(button.integration_id, button.component_number, _make_cb(full_id, btn_id, btn_uuid))
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

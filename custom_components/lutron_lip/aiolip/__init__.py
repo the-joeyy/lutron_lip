@@ -138,6 +138,12 @@ class LutronController:
         """Call the function in the subscriber entity."""
         key = (msg.integration_id, msg.component_number)
 
+        if msg.mode == LIPMode.DEVICE and msg.action_number not in (LIPAction.DEVICE_LED_STATE,):
+            if key not in self._subscribers:
+                _LOGGER.debug("No subscriber for DEVICE key %s — msg: %s", key, msg.raw)
+            else:
+                _LOGGER.debug("Dispatching DEVICE key %s action=%s to %d subscriber(s)", key, msg.action_number, len(self._subscribers[key]))
+
         for cb in self._subscribers.get(key, []):
             match (msg.mode, msg.action_number):
                 case (
