@@ -215,7 +215,10 @@ class LIP:
             self.connection_state = LIPConnectionState.NOT_CONNECTED
             raise
 
-        # set the correct monitoring
+        await self._async_setup_monitoring()
+
+    async def _async_setup_monitoring(self):
+        """Send monitoring enable commands after (re)connect."""
         await self.action(LIPMode.MONITORING, 12, 2)  # disable prompt state
         await self.action(
             LIPMode.MONITORING, 255, 2
@@ -290,6 +293,7 @@ class LIP:
                     # Back-off a bit before the next reconnect attempt to avoid a busy loop.
                     await asyncio.sleep(RECONNECT_DELAY)
                 else:
+                    await self._async_setup_monitoring()
                     self._keepalive_watchdog()
                     return
 
