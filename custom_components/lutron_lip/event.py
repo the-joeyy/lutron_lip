@@ -74,4 +74,3 @@ class LutronEventEntity(LutronKeypadComponent, EventEntity):
         event = self.action_number_to_event.get(value)
         if event:
             self._trigger_event(event)
-            self.schedule_update_ha_state()
