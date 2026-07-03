@@ -111,7 +111,7 @@ class LutronLight(LutronOutput, LightEntity):
             brightness = self._prev_brightness
         self._prev_brightness = brightness
         new_level = to_lutron_level(brightness)
-        fade_time = fade_time_seconds(getattr(kwargs, ATTR_TRANSITION, 0))
+        fade_time = fade_time_seconds(kwargs.get(ATTR_TRANSITION, 0))
         await self._execute_device_command(
             self._lutron_device.set_level, new_level, fade_time
         )
@@ -119,7 +119,7 @@ class LutronLight(LutronOutput, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         new_level = 0
-        fade_time = fade_time_seconds(getattr(kwargs, ATTR_TRANSITION, 0))
+        fade_time = fade_time_seconds(kwargs.get(ATTR_TRANSITION, 0))
         await self._execute_device_command(
             self._lutron_device.set_level, new_level, fade_time
         )
