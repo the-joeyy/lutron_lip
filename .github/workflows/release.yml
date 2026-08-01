@@ -1,0 +1,109 @@
+name: Release (GitHub + Ctrlable Store)
+
+# Tag-triggered release. This component is PUBLIC and ships as plain source, so
+# unlike buttons_machine there is no native compile / obfuscation step — the job
+# just stamps the version from the tag, zips the component, publishes a GitHub
+# release (which is what HACS installs from) and pushes the same artifact to the
+# Ctrlable Store.
+#
+#   Release:  git tag vX.Y.Z && git push origin vX.Y.Z
+#   Dry-run:  run via "workflow_dispatch" → uploads the zip as an artifact and
+#             publishes NOTHING, so the package can be inspected first.
+#
+# Requires repo secret STORE_UPLOAD_KEY (the store's X-Upload-Key).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+env:
+  COMPONENT_DIR: custom_components/lutron_lip
+  PRODUCT: lutron_lip
+  PRODUCT_NAME: Lutron LIP
+  STORE_URL: https://portal.ctrlable.com/api/v1/store/releases
+  MIN_HA_VERSION: "2023.6.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag is the single source of truth for the version — the manifest is
+      # stamped from it so the two can never drift (v0.2.9 shipped once with the
+      # manifest still reading 0.2.8 because they were maintained by hand).
+      - name: Stamp manifest version from the tag
+        if: github.event_name == 'push'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' "$COMPONENT_DIR/manifest.json" > /tmp/m.json
+          mv /tmp/m.json "$COMPONENT_DIR/manifest.json"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Stamped manifest to $VERSION"
+
+      - name: Set version for dry-run
+        if: github.event_name != 'push'
+        run: echo "VERSION=$(jq -r .version "$COMPONENT_DIR/manifest.json")" >> "$GITHUB_ENV"
+
+      # The store serves a product icon from brand/icon.png inside the package —
+      # absent here, so the storefront shows no icon until brand assets are added.
+      - name: Build the package
+        run: |
+          find "$COMPONENT_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          find "$COMPONENT_DIR" -name '*.pyc' -delete 2>/dev/null || true
+          cd "$COMPONENT_DIR"
+          zip -qr "$GITHUB_WORKSPACE/${PRODUCT}.zip" . \
+            -x "*.pyc" -x "*/__pycache__/*" -x "*.DS_Store"
+          cd "$GITHUB_WORKSPACE"
+          echo "built ${PRODUCT}.zip — $(stat -c%s "${PRODUCT}.zip") bytes, version ${VERSION}"
+          unzip -p "${PRODUCT}.zip" manifest.json | jq -r '"manifest version: \(.version)"'
+
+      - name: Upload package (dry-run only, publishes nothing)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lutron_lip-package
+          path: lutron_lip.zip
+
+      - name: Publish GitHub release (what HACS installs)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${GITHUB_REF_NAME}" --yes 2>/dev/null || true
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
+            --generate-notes "${PRODUCT}.zip"
+
+      - name: Publish to the Ctrlable Store
+        if: github.event_name == 'push'
+        env:
+          UPLOAD_KEY: ${{ secrets.STORE_UPLOAD_KEY }}
+        run: |
+          if [ -z "$UPLOAD_KEY" ]; then
+            echo "::error::STORE_UPLOAD_KEY is not set — the GitHub release published, the store did not."
+            exit 1
+          fi
+          CHANGELOG="$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")"
+          [ -n "$CHANGELOG" ] || CHANGELOG="Release ${VERSION}"
+          CODE=$(curl -sS -o /tmp/store.json -w '%{http_code}' -X POST "$STORE_URL" \
+            -H "X-Upload-Key: ${UPLOAD_KEY}" \
+            -F "product=${PRODUCT}" \
+            -F "name=${PRODUCT_NAME}" \
+            -F "version=${VERSION}" \
+            -F "channel=stable" \
+            -F "breaking=false" \
+            -F "min_ha_version=${MIN_HA_VERSION}" \
+            -F "changelog=${CHANGELOG}" \
+            -F "file=@${PRODUCT}.zip")
+          cat /tmp/store.json; echo
+          # 201 Created is the success contract; anything else must fail the job so a
+          # release can't silently land on GitHub but be missing from the store.
+          if [ "$CODE" != "201" ]; then
+            echo "::error::store upload returned HTTP $CODE"
+            exit 1
+          fi
+          echo "store: HTTP 201"
