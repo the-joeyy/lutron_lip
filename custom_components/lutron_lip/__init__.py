@@ -22,6 +22,7 @@ from .const import (
     CONF_VARIABLE_IDS,
     DOMAIN,
     LUTRON_DATA_FILE,
+    first_device_by_identifier,
 )
 
 PLATFORMS = [
@@ -283,12 +284,14 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         )
 
     # create the device for the Controller
-    device_registry.async_get_or_create(
+    controller_device = device_registry.async_get_or_create(
         config_entry_id=config_entry.entry_id,
         identifiers={(DOMAIN, lutron_controller.guid)},
         manufacturer="Lutron",
         name="Lutron Controller",
     )
+    # Entities parent themselves to this device by registry id (2026.9+).
+    lutron_controller.ha_device_id = controller_device.id
 
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = entry_data
 
@@ -334,7 +337,7 @@ def _async_check_device_identifiers(
         return
 
     unique_id = f"{controller_guid}_{legacy_uuid}"
-    device = device_registry.async_get_device(identifiers={(DOMAIN, unique_id)})
+    device = first_device_by_identifier(device_registry, {(DOMAIN, unique_id)})
     if device:
         new_unique_id = f"{controller_guid}_{uuid}"
         _LOGGER.debug("Updating device id from %s to %s", unique_id, new_unique_id)

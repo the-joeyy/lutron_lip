@@ -8,7 +8,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .aiolip import Device, KeypadComponent, LutronController, Output, Sysvar
-from .const import DOMAIN, KEYPAD_DEVICE_TYPE_NAMES
+from .const import DOMAIN, KEYPAD_DEVICE_TYPE_NAMES, link_to_controller
 
 
 class LutronBaseEntity(Entity):
@@ -31,12 +31,15 @@ class LutronBaseEntity(Entity):
         """Initialize the device."""
         self._lutron_device = lutron_device
         self._controller = controller
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, self.unique_id)},
-            manufacturer="Lutron",
-            name=self.device_name,
-            suggested_area=self.area_name if controller.suggest_areas else None,
-            via_device=(DOMAIN, controller.guid),
+        self._attr_device_info = link_to_controller(
+            DeviceInfo(
+                identifiers={(DOMAIN, self.unique_id)},
+                manufacturer="Lutron",
+                name=self.device_name,
+                suggested_area=self.area_name if controller.suggest_areas else None,
+            ),
+            controller.guid,
+            getattr(controller, "ha_device_id", None),
         )
 
     @property
