@@ -208,6 +208,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
                 # Add leds controlled by integration as a light device
                 # RadioRa mode adds valid leds as switches
 
+                if button.component_type == "CCI":
+                    continue
+
                 if button.button_type:
                     entry_data.buttons.append(button)
 
@@ -220,10 +223,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
                         entry_data.controller.guid,
                     )
 
-                if (
-                    not button.name.startswith("Unknown")
-                    and button.button_type in RADIORA_VALID_BUTTON_TYPES
-                ) or not use_radiora_mode:
+                if button.button_type and (
+                    (
+                        not button.name.startswith("Unknown")
+                        and button.button_type in RADIORA_VALID_BUTTON_TYPES
+                    )
+                    or not use_radiora_mode
+                ):
                     entry_data.scenes.append(button)
 
                     _async_check_entity_unique_id(

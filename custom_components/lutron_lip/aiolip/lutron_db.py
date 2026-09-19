@@ -554,6 +554,8 @@ class Button(KeypadComponent):
         # Hybrid keypads have dimmer buttons which have no engravings.
         if self.button_type == "SingleSceneRaiseLower":
             self.name = "Dimmer " + self.direction
+        elif self.button_type == "MasterRaiseLower" and self.direction:
+            self.name = self.direction
         # a button without engraving can be a valid button (e.g., keypad lower/raiser buttons)
         if not self.name:
             self.name = f"Unknown Button {self.component_number}"

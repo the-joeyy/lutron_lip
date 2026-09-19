@@ -395,23 +395,9 @@ class LutronCoverTimeBased(LutronOutput, CoverEntity, RestoreEntity):
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Turn the device stop."""
-        _LOGGER.info(
-            "Sending Lutron stop command to %s (integration_id=%s, output_type=%s)",
-            self.device_name,
-            self._lutron_device.integration_id,
-            self._lutron_device.output_type,
-        )
+        _LOGGER.debug("%s: async_stop_cover", self._attr_name)
         self._handle_stop()
-        try:
-            await self._execute_device_command(self._lutron_device.stop)
-        except Exception:
-            _LOGGER.warning(
-                "Lutron stop command failed for %s (integration_id=%s)",
-                self.device_name,
-                self._lutron_device.integration_id,
-                exc_info=True,
-            )
-            raise
+        await self._execute_device_command(self._lutron_device.stop)
 
     async def set_position(self, position):
         """Move the cover to a specific position."""
@@ -588,7 +574,6 @@ class LutronCover(LutronOutput, CoverEntity):
     _attr_supported_features = (
         CoverEntityFeature.OPEN
         | CoverEntityFeature.CLOSE
-        | CoverEntityFeature.STOP
         | CoverEntityFeature.SET_POSITION
     )
 
@@ -616,22 +601,7 @@ class LutronCover(LutronOutput, CoverEntity):
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the shade."""
-        _LOGGER.info(
-            "Sending Lutron shade stop command to %s (integration_id=%s, output_type=%s)",
-            self.device_name,
-            self._lutron_device.integration_id,
-            self._lutron_device.output_type,
-        )
-        try:
-            await self._execute_device_command(self._lutron_device.stop)
-        except Exception:
-            _LOGGER.warning(
-                "Lutron shade stop command failed for %s (integration_id=%s)",
-                self.device_name,
-                self._lutron_device.integration_id,
-                exc_info=True,
-            )
-            raise
+        await self._execute_device_command(self._lutron_device.stop)
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the shade to a specific position."""

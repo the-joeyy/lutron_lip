@@ -41,7 +41,7 @@ def _with_area_prefix(name: str, area_name: str, raw_area_name: str | None = Non
         return name
     if raw_area_name and _name_starts_with_area(name, raw_area_name):
         return name
-    return f"{area_name} {name}"
+    return f"{area_name} - {name}"
 
 
 def _is_meaningful_component_name(name: str | None, fallback: str) -> bool:
