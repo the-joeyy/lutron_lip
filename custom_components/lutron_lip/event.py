@@ -1,6 +1,7 @@
 """Support for Lutron events."""
 
 from enum import StrEnum
+import logging
 
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
@@ -10,6 +11,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import DOMAIN, LutronData
 from .aiolip import Button, LutronController
 from .entity import LutronKeypadComponent
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class LutronEventType(StrEnum):
@@ -73,4 +76,11 @@ class LutronEventEntity(LutronKeypadComponent, EventEntity):
         """Update the event.* entity state on button action."""
         event = self.action_number_to_event.get(value)
         if event:
+            _LOGGER.debug(
+                "Dispatching Lutron button event %s for %s component %s",
+                event,
+                self._lutron_device.integration_id,
+                self._component_number,
+            )
             self._trigger_event(event)
+            self.async_write_ha_state()

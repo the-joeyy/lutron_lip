@@ -1,6 +1,7 @@
 """Base class for Lutron devices."""
 
 from collections.abc import Callable, Mapping
+import re
 from typing import Any
 
 from homeassistant.const import ATTR_IDENTIFIERS, ATTR_VIA_DEVICE
@@ -9,6 +10,48 @@ from homeassistant.helpers.entity import Entity
 
 from .aiolip import Device, KeypadComponent, LutronController, Output, Sysvar
 from .const import DOMAIN, KEYPAD_DEVICE_TYPE_NAMES, link_to_controller
+
+
+_GENERIC_COMPONENT_NAME = re.compile(r"^(?:btn|led|cci)\s+\d+$", re.IGNORECASE)
+
+
+def _name_starts_with_area(name: str, area_name: str) -> bool:
+    """Return True if name already starts with the area name."""
+    name = name.strip()
+    area_name = area_name.strip()
+    if not name or not area_name:
+        return False
+
+    name_lower = name.casefold()
+    area_lower = area_name.casefold()
+    if name_lower == area_lower:
+        return True
+    if not name_lower.startswith(area_lower):
+        return False
+
+    next_char = name[len(area_name) : len(area_name) + 1]
+    return next_char in {" ", "-", "_", "/", ":", "."}
+
+
+def _with_area_prefix(name: str, area_name: str, raw_area_name: str | None = None) -> str:
+    """Prefix name with area unless it already includes that area."""
+    if not area_name:
+        return name
+    if _name_starts_with_area(name, area_name):
+        return name
+    if raw_area_name and _name_starts_with_area(name, raw_area_name):
+        return name
+    return f"{area_name} {name}"
+
+
+def _is_meaningful_component_name(name: str | None, fallback: str) -> bool:
+    """Return True if a keypad component name is better than Btn/Led/CCI N."""
+    if not name:
+        return False
+    name = name.strip()
+    if not name or name.casefold().startswith("unknown button"):
+        return False
+    return not _GENERIC_COMPONENT_NAME.fullmatch(name) or name.casefold() != fallback.casefold()
 
 
 class LutronBaseEntity(Entity):
@@ -57,12 +100,18 @@ class LutronBaseEntity(Entity):
     def device_name(self) -> str:
         """Return the device name including the computed area_name."""
         if (lutron_device := self._lutron_device) is not None:
-            return (
-                f"{self.area_name} {lutron_device.name}"
-                if self._controller.use_area_for_device_name
-                and self.area_name is not None
-                else lutron_device.name
-            )
+            if self._controller.use_area_for_device_name:
+                raw_area_name = (
+                    lutron_device.area.name
+                    if getattr(lutron_device, "area", None) is not None
+                    else None
+                )
+                return _with_area_prefix(
+                    lutron_device.name,
+                    self.area_name,
+                    raw_area_name,
+                )
+            return lutron_device.name
         return "No Name"
 
     async def async_added_to_hass(self) -> None:
@@ -175,9 +224,10 @@ class LutronKeypadComponent(LutronBaseEntity):
     @property
     def name(self) -> str:
         """Return the name of the entity."""
-        if self._controller.use_radiora_mode:
+        fallback = self._lutron_device.component_name
+        if _is_meaningful_component_name(self._lutron_device.name, fallback):
             return self._lutron_device.name
-        return self._lutron_device.component_name
+        return fallback
 
     @property
     def keypad_name(self) -> str:
@@ -188,16 +238,25 @@ class LutronKeypadComponent(LutronBaseEntity):
         """
         if self._controller.use_radiora_mode:
             return self._lutron_device.keypad.name
+        if self._lutron_device.keypad.device_group_name:
+            return self._lutron_device.keypad.device_group_name
         return f"keypad {self._lutron_device.keypad.integration_id}"
 
     @property
     def device_name(self) -> str:
-        """Return the device name for the keypad component, which is the keypad_name name including the computed area_name."""
-        return (
-            f"{self.area_name} {self.keypad_name}"
-            if self._controller.use_area_for_device_name and self.area_name is not None
-            else self.keypad_name
-        )
+        """Return the keypad device name including the computed area_name."""
+        if self._controller.use_area_for_device_name:
+            raw_area_name = (
+                self._lutron_device.area.name
+                if getattr(self._lutron_device, "area", None) is not None
+                else None
+            )
+            return _with_area_prefix(
+                self.keypad_name,
+                self.area_name,
+                raw_area_name,
+            )
+        return self.keypad_name
 
     async def async_added_to_hass(self) -> None:  # pylint: disable=hass-missing-super-call
         """Register the keypad component using also the component_number to get the updates for the components."""

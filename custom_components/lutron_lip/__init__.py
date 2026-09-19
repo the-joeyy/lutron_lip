@@ -13,6 +13,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.util import slugify
 
 from .aiolip import Button, Led, LutronController, OccupancyGroup, Output, Sysvar
+from .entity import _with_area_prefix
 from .const import (
     CONF_REFRESH_DATA,
     CONF_SUGGEST_AREAS,
@@ -246,28 +247,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
                         entry_data.controller.guid,
                     )
 
-        # exclude occupancy_group not linked to an area
-        if (
-            area.occupancy_group is not None
-            and area.occupancy_group.integration_id != 0
-        ):
-            entry_data.binary_sensors.append(area.occupancy_group)
-            platform = Platform.BINARY_SENSOR
-            _async_check_entity_unique_id(
-                hass,
-                entity_registry,
-                platform,
-                area.occupancy_group.uuid,
-                area.occupancy_group.legacy_uuid,
-                entry_data.controller.guid,
-            )
-            _async_check_device_identifiers(
-                hass,
-                device_registry,
-                area.occupancy_group.uuid,
-                area.occupancy_group.legacy_uuid,
-                entry_data.controller.guid,
-            )
+        # Occupancy groups are parsed for completeness but intentionally not
+        # exposed as entities in this installation. The binary_sensor platform
+        # still adds the controller connection status sensor.
     # check variables
     for variable in lutron_controller.variables:
         _LOGGER.debug("Working on variable %s", variable.name)
@@ -361,9 +343,16 @@ def _setup_button_events(hass: HomeAssistant, entry_data: LutronData) -> None:
         if controller.use_radiora_mode:
             keypad_name = button.keypad.name
         else:
-            keypad_name = f"keypad {button.keypad.integration_id}"
+            keypad_name = (
+                button.keypad.device_group_name
+                or f"keypad {button.keypad.integration_id}"
+            )
 
-        component_name = button.component_name
+        component_name = (
+            button.name
+            if button.name and not button.name.casefold().startswith("unknown button")
+            else button.component_name
+        )
 
         area = button.area
         if controller.use_area_for_device_name and area:
@@ -372,7 +361,7 @@ def _setup_button_events(hass: HomeAssistant, entry_data: LutronData) -> None:
                 if controller.use_full_path
                 else area.name
             )
-            device_name = f"{area_prefix} {keypad_name}"
+            device_name = _with_area_prefix(keypad_name, area_prefix, area.name)
         else:
             device_name = keypad_name
 
