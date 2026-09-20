@@ -138,5 +138,3 @@ class LutronLight(LutronOutput, LightEntity):
             self._prev_brightness = hass_level
 
         self.async_write_ha_state()
-
-
