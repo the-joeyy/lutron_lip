@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import logging
+import re
 
 import voluptuous as vol
 
@@ -92,6 +93,11 @@ class LutronData:
 def get_entry_value(entry: ConfigEntry, key: str, default=None):
     """Get the entry from options if available, else return it from the original data."""
     return entry.options.get(key, entry.data.get(key, default))
+
+
+def _slugify_lutron_name(name: str) -> str:
+    """Slugify Lutron names while treating apostrophes as punctuation."""
+    return slugify(re.sub(r"['\u2019]", "", name))
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
@@ -280,7 +286,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     )
     # Entities parent themselves to this device by registry id (2026.9+).
     lutron_controller.ha_device_id = controller_device.id
-
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = entry_data
 
     _setup_button_events(hass, entry_data)
@@ -371,8 +376,8 @@ def _setup_button_events(hass: HomeAssistant, entry_data: LutronData) -> None:
         else:
             device_name = keypad_name
 
-        full_id = slugify(f"{device_name}: {component_name}")
-        btn_id = slugify(f"{keypad_name}: {component_name}")
+        full_id = _slugify_lutron_name(f"{device_name}: {component_name}")
+        btn_id = full_id
         btn_uuid = button.uuid
 
         def _make_cb(fid, bid, uuid):

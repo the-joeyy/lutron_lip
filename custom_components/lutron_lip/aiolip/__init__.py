@@ -47,6 +47,7 @@ from .lutron_db import (
 from .protocol import LIP, LIPConnectionState
 
 _LOGGER = logging.getLogger(__name__)
+DOUBLE_TAP_WINDOW = 0.5
 
 
 class LutronController:
@@ -89,6 +90,9 @@ class LutronController:
         self._subscribers: dict[
             tuple[int, int | None], list[Callable[[Any], None]]
         ] = {}  # integration_id, component_number -> list of entities
+        self._pending_button_presses: dict[
+            tuple[int, int | None], tuple[asyncio.TimerHandle, LIPMessage]
+        ] = {}
         self.guid: str = "no guid"
         self.areas: list[Any] = []  # List[Area] type
         self.variables: list[Sysvar] = []
@@ -138,25 +142,83 @@ class LutronController:
         """Call the function in the subscriber entity."""
         key = (msg.integration_id, msg.component_number)
 
+        match (msg.mode, msg.action_number):
+            case (
+                (LIPMode.OUTPUT, LIPAction.OUTPUT_LEVEL)
+                | (LIPMode.GROUP, LIPAction.GROUP_STATE)
+                | (LIPMode.SYSVAR, LIPAction.SYSVAR_STATE)
+                | (LIPMode.DEVICE, LIPAction.DEVICE_LED_STATE)
+            ):
+                self._flush_pending_button_press(key)
+                self._dispatch_to_subscribers(key, msg.value)
+            case (
+                LIPMode.OUTPUT,
+                LIPAction.OUTPUT_UNDOCUMENTED_29 | LIPAction.OUTPUT_UNDOCUMENTED_30,
+            ):
+                self._flush_pending_button_press(key)
+            case (LIPMode.DEVICE, LIPAction.DEVICE_PRESS):
+                self._dispatch_button_press(msg, key)
+            case (LIPMode.DEVICE, _):
+                self._flush_pending_button_press(key)
+                self._dispatch_device_action(msg, key, msg.action_number)
+            case _:
+                self._flush_pending_button_press(key)
+                # Optionally log or handle unknown message types
+                _LOGGER.debug("Unhandled LIP message: %s", msg)
+
+    def _dispatch_to_subscribers(
+        self, key: tuple[int, int | None], value: Any
+    ) -> None:
+        """Dispatch a value to all subscribers for a Lutron integration/component."""
         for cb in self._subscribers.get(key, []):
-            match (msg.mode, msg.action_number):
-                case (
-                    (LIPMode.OUTPUT, LIPAction.OUTPUT_LEVEL)
-                    | (LIPMode.GROUP, LIPAction.GROUP_STATE)
-                    | (LIPMode.SYSVAR, LIPAction.SYSVAR_STATE)
-                    | (LIPMode.DEVICE, LIPAction.DEVICE_LED_STATE)
-                ):
-                    cb(msg.value)
-                case (
-                    LIPMode.OUTPUT,
-                    LIPAction.OUTPUT_UNDOCUMENTED_29 | LIPAction.OUTPUT_UNDOCUMENTED_30,
-                ):
-                    pass
-                case (LIPMode.DEVICE, _):
-                    cb(msg.action_number)
-                case _:
-                    # Optionally log or handle unknown message types
-                    _LOGGER.debug("Unhandled LIP message: %s", msg)
+            cb(value)
+
+    def _dispatch_button_press(
+        self, msg: LIPMessage, key: tuple[int, int | None]
+    ) -> None:
+        """Dispatch single presses, or synthesize double taps from rapid presses."""
+        pending = self._pending_button_presses.pop(key, None)
+        if pending is not None:
+            handle, _ = pending
+            handle.cancel()
+            _LOGGER.info(
+                "Synthesizing Lutron DEVICE double_tap from repeated press: integration_id=%s component=%s",
+                msg.integration_id,
+                msg.component_number,
+            )
+            self._dispatch_device_action(msg, key, LIPAction.DEVICE_DOUBLE_TAP)
+            return
+
+        def _send_press() -> None:
+            pending = self._pending_button_presses.get(key)
+            if pending and pending[0] is handle:
+                self._pending_button_presses.pop(key, None)
+                self._dispatch_device_action(msg, key, LIPAction.DEVICE_PRESS)
+
+        handle = self.hass.loop.call_later(DOUBLE_TAP_WINDOW, _send_press)
+        self._pending_button_presses[key] = (handle, msg)
+
+    def _flush_pending_button_press(self, key: tuple[int, int | None]) -> None:
+        """Dispatch a pending single press before another action supersedes it."""
+        pending = self._pending_button_presses.pop(key, None)
+        if pending is not None:
+            handle, msg = pending
+            handle.cancel()
+            self._dispatch_device_action(msg, key, LIPAction.DEVICE_PRESS)
+
+    def _dispatch_device_action(
+        self, msg: LIPMessage, key: tuple[int, int | None], action_number: int
+    ) -> None:
+        """Dispatch a keypad DEVICE action to subscribers."""
+        _LOGGER.info(
+            "Incoming Lutron DEVICE message: raw=%s integration_id=%s component=%s action=%s value=%s",
+            msg.raw,
+            msg.integration_id,
+            msg.component_number,
+            action_number,
+            msg.value,
+        )
+        self._dispatch_to_subscribers(key, action_number)
 
     async def execute_command(self, command: LIPCommand) -> None:
         """Execute a LIPCommand."""
@@ -193,6 +255,9 @@ class LutronController:
 
     async def stop(self):
         """Stop the connection to the controller."""
+        for handle, _ in self._pending_button_presses.values():
+            handle.cancel()
+        self._pending_button_presses.clear()
         if self.connected:
             await self.lip.async_stop()
 

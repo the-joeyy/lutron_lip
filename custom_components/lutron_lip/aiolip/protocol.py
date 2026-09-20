@@ -188,6 +188,7 @@ class LIP:
         self._disconnect_event = asyncio.Event()
         self._reconnecting_event = asyncio.Event()
         self._callback = None  # Only one callback, the coordinator
+        self._last_command = None
         self._keep_alive_reconnect_task = None
         self._last_keep_alive_response = None
         self._keep_alive_task = None
@@ -400,7 +401,11 @@ class LIP:
             if message.mode == LIPMode.KEEPALIVE:
                 self._last_keep_alive_response = self._parser.last_keepalive
             elif message.mode == LIPMode.ERROR:
-                _LOGGER.error("Protocol Error: %s", response)
+                _LOGGER.error(
+                    "Protocol Error: %s after command: %s",
+                    response,
+                    self._last_command,
+                )
             elif message.mode != LIPMode.UNKNOWN:
                 try:
                     if self._callback:
@@ -430,8 +435,10 @@ class LIP:
         assert isinstance(mode, LIPMode)
 
         request = ",".join([mode.name, *[str(key) for key in cmd]])
-        _LOGGER.debug("Outgoing message:%s-%s", protocol_header, request)
-        await self._socket.async_write_command(f"{protocol_header}{request}")
+        command = f"{protocol_header}{request}"
+        self._last_command = command
+        _LOGGER.debug("Outgoing message:%s", command)
+        await self._socket.async_write_command(command)
 
 
 def _verify_expected_response(received, expected):

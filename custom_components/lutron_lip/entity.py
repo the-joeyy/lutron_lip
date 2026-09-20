@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 import re
 from typing import Any
 
-from homeassistant.const import ATTR_IDENTIFIERS, ATTR_VIA_DEVICE
+from homeassistant.const import ATTR_IDENTIFIERS
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
@@ -33,14 +33,28 @@ def _name_starts_with_area(name: str, area_name: str) -> bool:
     return next_char in {" ", "-", "_", "/", ":", "."}
 
 
+def _normalise_area_prefixed_name(name: str, area_name: str) -> str:
+    """Return a consistently dashed name when it already starts with area."""
+    name = name.strip()
+    area_name = area_name.strip()
+    if name.casefold() == area_name.casefold():
+        return area_name
+
+    tail = name[len(area_name) :].strip()
+    tail = tail.lstrip(" -_/:.").strip()
+    if not tail:
+        return area_name
+    return f"{area_name} - {tail}"
+
+
 def _with_area_prefix(name: str, area_name: str, raw_area_name: str | None = None) -> str:
     """Prefix name with area unless it already includes that area."""
     if not area_name:
         return name
     if _name_starts_with_area(name, area_name):
-        return name
+        return _normalise_area_prefixed_name(name, area_name)
     if raw_area_name and _name_starts_with_area(name, raw_area_name):
-        return name
+        return _normalise_area_prefixed_name(name, raw_area_name)
     return f"{area_name} - {name}"
 
 
@@ -219,7 +233,11 @@ class LutronKeypadComponent(LutronBaseEntity):
         if lutron_device.keypad.device_type == "MAIN_REPEATER":
             self._attr_device_info[ATTR_IDENTIFIERS].add((DOMAIN, controller.guid))
         else:
-            self._attr_device_info[ATTR_VIA_DEVICE] = (DOMAIN, controller.guid)
+            self._attr_device_info = link_to_controller(
+                self._attr_device_info,
+                controller.guid,
+                getattr(controller, "ha_device_id", None),
+            )
 
     @property
     def name(self) -> str:

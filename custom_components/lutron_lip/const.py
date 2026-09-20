@@ -87,19 +87,10 @@ ERROR_DEVICE_NOT_FOUND = "device_not_found"
 # `async_get_device` is deprecated for the same release family (identifiers are
 # no longer unique across config entries); `async_get_devices` replaces it.
 #
-# Probe rather than pin, so one build serves cores either side of the change.
-from homeassistant.helpers.device_registry import DeviceInfo as _DeviceInfo
-
-_SUPPORTS_VIA_DEVICE_ID = "via_device_id" in getattr(
-    _DeviceInfo, "__annotations__", {}
-)
-
-
 def link_to_controller(info, controller_guid, controller_device_id=None):
-    """Parent a DeviceInfo to the Lutron controller, however this core spells it."""
-    if _SUPPORTS_VIA_DEVICE_ID:
-        if controller_device_id:
-            info["via_device_id"] = controller_device_id
+    """Parent a DeviceInfo to the Lutron controller device."""
+    if controller_device_id:
+        info["via_device_id"] = controller_device_id
     else:
         info["via_device"] = (DOMAIN, controller_guid)
     return info

@@ -7,7 +7,8 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DOMAIN, LutronData
@@ -75,6 +76,19 @@ class LutronLedSwitch(LutronKeypadComponent, SwitchEntity):
         """Initialize the device."""
         super().__init__(lutron_device, controller)
         self._attr_name = self.name
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks and retry initial LED state after startup."""
+        await super().async_added_to_hass()
+
+        delay = 5 + (self._lutron_device.component_number % 10) * 0.2
+
+        @callback
+        def _retry_initial_state(_now):
+            if self._attr_is_on is None:
+                self.async_schedule_update_ha_state(True)
+
+        self.async_on_remove(async_call_later(self.hass, delay, _retry_initial_state))
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the LED on."""
